@@ -1,90 +1,61 @@
+// Gerekli modülleri import et
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+// Profesyonel loglama için 'pino' kütüphanesini ekliyoruz
+const pino = require('pino');
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
+// Express uygulamasını oluştur
 const app = express();
 
-// Middleware
+// Konfigürasyon değişkenlerini tanımla
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0'; // Docker için '0.0.0.0' en iyisidir
+
+// Middleware'leri kullan
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Her isteği logla
+// Gelen her isteği loglamak için middleware
 app.use((req, res, next) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${req.method} ${req.path}`);
+  logger.info({ method: req.method, path: req.path, ip: req.ip }, 'Gelen istek');
   next();
 });
 
-// Ana sayfa - Sistem çalışıyor mu kontrol
+// Ana sayfa endpoint'i
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'ÇALIŞIYOR',
     servis: 'Vapi Sipariş Bot',
     zaman: new Date().toISOString()
   });
 });
 
-// Sağlık kontrolü
+// Sağlık kontrolü endpoint'i
 app.get('/health', (req, res) => {
   res.json({ durum: 'saglikli' });
 });
 
-// VAPI WEBHOOK - En önemli kısım
+// VAPI WEBHOOK endpoint'i
 app.post('/vapi/webhook', async (req, res) => {
+  const { body } = req;
+  logger.info({ body }, '🔔 VAPI WEBHOOK ÇAĞRILDI');
+
   try {
-    console.log('\n════════════════════════════════════════');
-    console.log('🔔 VAPI WEBHOOK ÇAĞRILDI');
-    console.log('════════════════════════════════════════');
-    
-    const body = req.body;
-    
-    // Gelen veriyi tamamen göster
-    console.log('Gelen veri:', JSON.stringify(body, null, 2));
-    
-    // Message var mı kontrol et
-    if (!body.message) {
-      console.log('⚠️ Message yok, boş yanıt dönüyorum');
-      return res.json({});
-    }
-    
-    const messageType = body.message.type;
-    console.log('📨 Mesaj tipi:', messageType);
-    
-    // Function call mı?
-    if (messageType === 'function-call') {
-      console.log('\n🎯 FUNCTION CALL TESPİT EDİLDİ!');
-      
-      const functionCall = body.message.functionCall;
-      const functionName = functionCall.name;
-      const parameters = functionCall.parameters;
-      
-      console.log('Function adı:', functionName);
-      console.log('Parametreler:', JSON.stringify(parameters, null, 2));
-      
-      // Sipariş kaydetme function'ı mı?
-      if (functionName === 'kaydet_siparis') {
-        console.log('\n✅ SİPARİŞ KAYDET FUNCTION ÇAĞRILDI!');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📦 ÜRÜNLER:');
-        
-        if (parameters.urunler && Array.isArray(parameters.urunler)) {
-          parameters.urunler.forEach((urun, index) => {
-            console.log(`   ${index + 1}. ${urun.urun} x${urun.adet} = ${urun.fiyat} TL`);
-          });
-        }
-        
-        console.log(`📍 ADRES: ${parameters.adres || 'Belirtilmemiş'}`);
-        console.log(`📞 TELEFON: ${parameters.telefon || 'Belirtilmemiş'}`);
-        console.log(`💰 TOPLAM: ${parameters.toplam_fiyat || 0} TL`);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    if (body.message?.type === 'function-call') {
+      const { functionCall } = body.message;
+      const { name, parameters } = functionCall;
+
+      logger.info({ functionName: name, parameters }, '🎯 FUNCTION CALL TESPİT EDİLDİ!');
+
+      if (name === 'kaydet_siparis') {
+        logger.info(parameters, '✅ SİPARİŞ KAYDET FUNCTION ÇAĞRILDI!');
         
         // Sipariş numarası oluştur
         const siparisNo = 'SIP' + Date.now();
         
-        // BURAYA VERİTABANI KAYIT KODUNUZu EKLEYERS İNİZ
-        // Örnek: await database.siparisKaydet(parameters);
-        
-        // Vapi'ye başarılı yanıt dön
+        // Vapi'ye gönderilecek yanıtı hazırla
         const yanit = {
           results: [{
             toolCallId: body.message.toolCallId,
@@ -92,12 +63,12 @@ app.post('/vapi/webhook', async (req, res) => {
           }]
         };
         
-        console.log('✅ Vapi\'ye başarılı yanıt gönderildi');
+        logger.info({ yanit }, '✅ Vapi\'ye başarılı yanıt gönderildi');
         return res.json(yanit);
       }
       
-      // Başka bir function çağrıldıysa
-      console.log('⚠️ Bilinmeyen function:', functionName);
+      // Bilinmeyen bir function çağrılırsa
+      logger.warn({ functionName: name }, '⚠️ Bilinmeyen function çağrıldı');
       return res.json({
         results: [{
           toolCallId: body.message.toolCallId,
@@ -105,37 +76,34 @@ app.post('/vapi/webhook', async (req, res) => {
         }]
       });
     }
-    
-    // Function call değilse boş yanıt
-    console.log('ℹ️ Function call değil, boş yanıt dönüyorum');
-    res.json({});
-    
+
+    logger.info('ℹ️ Function call değil, boş yanıt dönülüyor');
+    return res.json({});
+
   } catch (error) {
-    console.error('\n❌ HATA OLUŞTU!');
-    console.error('Hata detayı:', error);
-    res.status(500).json({ hata: 'Sunucu hatası' });
+    logger.error({ err: error }, '❌ WEBHOOK İŞLEME SIRASINDA HATA OLUŞTU!');
+    return res.status(500).json({ hata: 'Sunucu hatası' });
   }
 });
 
-// 404 hatası
+// 404 - Sayfa bulunamadı middleware'i
 app.use((req, res) => {
-  console.log('⚠️ 404 - Sayfa bulunamadı:', req.path);
+  logger.warn({ path: req.path }, '⚠️ 404 - Sayfa bulunamadı');
   res.status(404).json({ hata: 'Bu endpoint bulunamadı' });
 });
 
-// Sunucu hatası
+// Genel hata yakalama middleware'i
 app.use((err, req, res, next) => {
-  console.error('❌ Sunucu hatası:', err);
+  logger.error({ err }, '❌ KRİTİK SUNUCU HATASI!');
   res.status(500).json({ hata: 'Bir şeyler ters gitti' });
 });
 
 // Sunucuyu başlat
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, HOST, () => {
   console.log('\n╔════════════════════════════════════════╗');
   console.log('║   🚀 SUNUCU BAŞLATILDI!               ║');
   console.log('╚════════════════════════════════════════╝');
-  console.log(`📡 Port: ${PORT}`);
+  console.log(`📡 Host: ${HOST} | Port: ${PORT}`);
   console.log(`🌐 Webhook URL: /vapi/webhook`);
   console.log(`❤️  Health Check: /health`);
   console.log(`\n⏳ İstekleri bekliyorum...\n`);
