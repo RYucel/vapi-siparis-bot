@@ -1,0 +1,53 @@
+Invoke-WebRequest -Uri "https://api.vapi.ai/tool" `
+-Method POST `
+-Headers @{
+  "Authorization" = "Bearer 0fd51330-c7d8-4431-8c63-198240525b90"
+} `
+-ContentType "application/json" `
+-Body '{
+  "type": "function",
+  "function": {
+    "name": "kaydet_siparis",
+    "description": "Müşterinin verdiği ürün, adet, fiyat, adres ve telefon bilgilerini alarak siparişi sistame kaydeder. Sipariş tamamlandığında bu fonksiyonu çağır.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "urunler": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "urun": {
+                "type": "string",
+                "description": "Sipariş edilen ürünün adı, örneğin ''Büyük Boy Pizza''"
+              },
+              "adet": {
+                "type": "number",
+                "description": "Bu üründen kaç adet sipariş edildiği"
+              },
+              "fiyat": {
+                "type": "number",
+                "description": "Ürünün birim fiyatı"
+              }
+            },
+            "required": ["urun", "adet", "fiyat"]
+          },
+          "description": "Sipariş edilen ürünlerin tam listesi"
+        },
+        "adres": {
+          "type": "string",
+          "description": "Siparişin teslim edileceği tam adres"
+        },
+        "telefon": {
+          "type": "string",
+          "description": "Siparişi veren müşterinin telefon numarası"
+        },
+        "toplam_fiyat": {
+          "type": "number",
+          "description": "Tüm siparişin KDV dahil toplam tutarı"
+        }
+      },
+      "required": ["urunler", "adres", "toplam_fiyat"]
+    }
+  }
+}'
