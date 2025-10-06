@@ -15,37 +15,51 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.get('/', (req, res) => res.json({ status: 'ÇALIŞIYOR', servis: 'WhatsApp Sipariş Bot' }));
 app.get('/health', (req, res) => res.json({ durum: 'saglikli' }));
 
-// Ana webhook'umuz
+// Ana webhook'umuz - GÜNCELLENMİŞ HALİ
 app.post('/whatsapp/webhook', async (req, res) => {
-  const gelenMesaj = req.body.Body;
+  const gelenMesaj = req.body.Body.trim(); // .trim() ile başındaki/sonundaki boşlukları alırız
   const kimden = req.body.From;
   
-  // Gelen interaktif cevabı yakalamak için
   const interactiveReply = req.body.interactive;
 
   console.log(`Gelen veri: ${JSON.stringify(req.body, null, 2)}`);
 
-  // EĞER KULLANICI BİR LİSTEDEN SEÇİM YAPTIYSA (ADIM 4)
-  if (interactiveReply && interactiveReply.type === 'list_reply') {
-    const secilenId = interactiveReply.list_reply.id;
-    console.log(`Kullanıcı bir kategori seçti: ${secilenId}`);
+  // --- YENİ MANTIK BAŞLANGICI ---
+  let secilenId = null;
 
-    // Seçilen kategoriye göre ürünleri gönder
+  // 1. Önce gerçek bir interaktif cevap var mı diye bak (Canlıda bu çalışacak)
+  if (interactiveReply && interactiveReply.type === 'list_reply') {
+    secilenId = interactiveReply.list_reply.id;
+    console.log(`Kullanıcı interaktif listeden seçti: ${secilenId}`);
+  
+  // 2. EĞER İNTERAKTİF CEVAP YOKSA, GELEN MESAJ BİR KATEGORİ ID'Sİ Mİ DİYE KONTROL ET (Sandbox testimiz için)
+  } else if (gelenMesaj.startsWith('kategori_')) {
+    secilenId = gelenMesaj;
+    console.log(`Kullanıcı manuel olarak kategori ID'si girdi: ${secilenId}`);
+  }
+  // --- YENİ MANTIK SONU ---
+
+
+  // EĞER BİR KATEGORİ SEÇİLDİYSE (ister interaktif, ister manuel)
+  if (secilenId) {
     if (secilenId === 'kategori_klima') {
       await sendProductList(kimden, 'Klima Kataloğu', [
-        { title: 'Klimalar', sku_prefix: 'klima' }
+        { title: 'Klimalar', product_items: [
+            { product_retailer_id: 'klima_fairy_12000' },
+            { product_retailer_id: 'klima_clivia_18000_siyah' },
+            { product_retailer_id: 'klima_bora_24000' }
+          ]
+        }
       ]);
     } else if (secilenId === 'kategori_jakuzi') {
-      await sendProductList(kimden, 'Jakuzi Kataloğu', [
-        { title: 'Jakuziler', sku_prefix: 'jakuzi' }
-      ]);
+      // Jakuzi ürün listesini gönderme kodunu buraya ekleyeceğiz
+      console.log("Jakuzi ürünleri listelenecek...");
     } else if (secilenId === 'kategori_earaba') {
-      await sendProductList(kimden, 'Elektrikli Araç Kataloğu', [
-        { title: 'Elektrikli Arabalar', sku_prefix: 'earaba' }
-      ]);
+      // Araba ürün listesini gönderme kodunu buraya ekleyeceğiz
+      console.log("Araba ürünleri listelenecek...");
     }
 
-  // EĞER SOHBETİ BAŞLATAN NORMAL BİR MESAJSA (ADIM 3)
+  // HİÇBİR KATEGORİ SEÇİLMEDİYSE (normal sohbet mesajı)
   } else {
     console.log(`Kullanıcı sohbet başlattı: "${gelenMesaj}"`);
     await sendCategoryList(kimden);
