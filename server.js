@@ -1,11 +1,10 @@
-// server.js - ADIM 3 KODU
+// server.js - ADIM 4 KODU
 
-require('dotenv').config(); // .env dosyasındaki değişkenleri yükler
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const twilio = require('twilio');
 
-// Twilio Client'ını .env dosyasındaki bilgilerle başlat
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = twilio(accountSid, authToken);
@@ -18,69 +17,112 @@ app.get('/health', (req, res) => res.json({ durum: 'saglikli' }));
 
 // Ana webhook'umuz
 app.post('/whatsapp/webhook', async (req, res) => {
-  const gelenMesaj = req.body.Body; // Müşterinin yazdığı mesaj
-  const kimden = req.body.From;     // Müşterinin WhatsApp numarası (whatsapp:+905...)
+  const gelenMesaj = req.body.Body;
+  const kimden = req.body.From;
   
-  console.log(`Yeni mesaj geldi -> Kimden: ${kimden}, Mesaj: "${gelenMesaj}"`);
+  // Gelen interaktif cevabı yakalamak için
+  const interactiveReply = req.body.interactive;
 
-  // ---- YENİ KOD BAŞLANGICI ----
-  // Bu kod, Twilio'nun API'ını kullanarak interaktif bir mesaj gönderecek.
-  // Bu nedenle artık TwiML ile değil, doğrudan API çağrısı ile cevap veriyoruz.
+  console.log(`Gelen veri: ${JSON.stringify(req.body, null, 2)}`);
+
+  // EĞER KULLANICI BİR LİSTEDEN SEÇİM YAPTIYSA (ADIM 4)
+  if (interactiveReply && interactiveReply.type === 'list_reply') {
+    const secilenId = interactiveReply.list_reply.id;
+    console.log(`Kullanıcı bir kategori seçti: ${secilenId}`);
+
+    // Seçilen kategoriye göre ürünleri gönder
+    if (secilenId === 'kategori_klima') {
+      await sendProductList(kimden, 'Klima Kataloğu', [
+        { title: 'Klimalar', sku_prefix: 'klima' }
+      ]);
+    } else if (secilenId === 'kategori_jakuzi') {
+      await sendProductList(kimden, 'Jakuzi Kataloğu', [
+        { title: 'Jakuziler', sku_prefix: 'jakuzi' }
+      ]);
+    } else if (secilenId === 'kategori_earaba') {
+      await sendProductList(kimden, 'Elektrikli Araç Kataloğu', [
+        { title: 'Elektrikli Arabalar', sku_prefix: 'earaba' }
+      ]);
+    }
+
+  // EĞER SOHBETİ BAŞLATAN NORMAL BİR MESAJSA (ADIM 3)
+  } else {
+    console.log(`Kullanıcı sohbet başlattı: "${gelenMesaj}"`);
+    await sendCategoryList(kimden);
+  }
+  
+  res.status(200).send();
+});
+
+// Kategori listesini gönderen fonksiyon (Adım 3'teki kod)
+async function sendCategoryList(kime) {
   try {
     await client.messages.create({
-      from: process.env.TWILIO_WHATSAPP_NUMBER, // Bizim Twilio numaramız
-      to: kimden, // Müşterinin numarası
-      body: 'Lütfen aşağıdaki listeden ilgilendiğiniz ürün kategorisini seçin.', // Bu metin, liste desteklenmeyen eski telefonlarda görünür.
-      
-      // İşte interaktif kısım burası!
+      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      to: kime,
+      body: 'Lütfen ilgilendiğiniz ürün kategorisini seçin.',
       interactive: {
         type: 'list',
-        header: {
-          type: 'text',
-          text: 'Ürün Kategorileri'
-        },
-        body: {
-          text: 'SIBA LTD olarak size en kaliteli ürünleri sunuyoruz. Hangi ürün grubumuzla ilgileniyorsunuz?'
-        },
-        footer: {
-          text: 'Seçiminizi yapabilirsiniz'
-        },
+        header: { type: 'text', text: 'Ürün Kategorileri' },
+        body: { text: 'SIBA LTD olarak size en kaliteli ürünleri sunuyoruz.' },
         action: {
           button: 'Kategorileri Görüntüle',
-          sections: [
-            {
-              title: 'Araç ve Yaşam Alanı Çözümleri',
-              rows: [
-                {
-                  id: 'kategori_klima', // Bu ID'yi daha sonra kullanacağız
-                  title: 'Klimalar',
-                  description: 'GREE marka son teknoloji klimalar'
-                },
-                {
-                  id: 'kategori_jakuzi',
-                  title: 'Jakuziler',
-                  description: 'SIBA marka lüks spa ve jakuziler'
-                },
-                {
-                  id: 'kategori_earaba',
-                  title: 'Elektrikli Arabalar',
-                  description: 'Dongfeng ve Ridarra marka elektrikli araçlar'
-                }
-              ]
-            }
-          ]
+          sections: [{
+            title: 'Ana Kategoriler',
+            rows: [
+              { id: 'kategori_klima', title: 'Klimalar' },
+              { id: 'kategori_jakuzi', title: 'Jakuziler' },
+              { id: 'kategori_earaba', title: 'Elektrikli Arabalar' }
+            ]
+          }]
         }
       }
     });
     console.log('Kategori seçim listesi başarıyla gönderildi.');
   } catch (error) {
-    console.error('Mesaj gönderilirken hata oluştu:', error);
+    console.error('Kategori listesi gönderilirken hata:', error.response ? error.response.data : error.message);
   }
-  // ---- YENİ KOD SONU ----
+}
 
-  // Twilio'ya webhook'un başarılı olduğunu bildirmek için boş bir 200 OK yanıtı dönüyoruz.
-  res.status(200).send();
-});
+// Ürün listesini gönderen YENİ fonksiyon
+async function sendProductList(kime, headerText, sections) {
+  // Meta Kataloğundaki ürünleri buraya ekleyeceğiz
+  const productSections = sections.map(section => ({
+    title: section.title,
+    product_items: [
+      // Örnek: Klima ürünleri. SKU'ların katalogdakiyle aynı olması KRİTİK!
+      { product_retailer_id: `${section.sku_prefix}_fairy_12000` },
+      { product_retailer_id: `${section.sku_prefix}_clivia_18000_siyah` },
+      { product_retailer_id: `${section.sku_prefix}_bora_24000` },
+      // ... diğer klimalar
+    ]
+  }));
+
+  try {
+    await client.messages.create({
+      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      to: kime,
+      body: 'İşte harika ürünlerimiz!', // Yedek metin
+      interactive: {
+        type: 'product_list',
+        header: {
+          type: 'text',
+          text: headerText
+        },
+        body: {
+          text: 'Beğendiğiniz ürünleri sepetinize ekleyebilirsiniz.'
+        },
+        action: {
+          catalog_id: process.env.META_CATALOG_ID, // Bu ID'yi Meta'dan alacağız!
+          sections: productSections
+        }
+      }
+    });
+    console.log('Ürün listesi başarıyla gönderildi.');
+  } catch (error) {
+    console.error('Ürün listesi gönderilirken hata:', error.response ? error.response.data : error.message);
+  }
+}
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
