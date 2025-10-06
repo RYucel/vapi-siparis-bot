@@ -1,4 +1,4 @@
-// server.js - ADIM 5 KODU (Final)
+// server.js - FİNAL VE TAM KOD
 
 require('dotenv').config();
 const express = require('express');
@@ -16,7 +16,7 @@ app.get('/', (req, res) => res.json({ status: 'ÇALIŞIYOR', servis: 'WhatsApp S
 app.get('/health', (req, res) => res.json({ durum: 'saglikli' }));
 
 app.post('/whatsapp/webhook', async (req, res) => {
-  const gelenMesaj = req.body.Body.trim();
+  const gelenMesaj = req.body.Body ? req.body.Body.trim() : '';
   const kimden = req.body.From;
   const interactiveReply = req.body.interactive;
 
@@ -24,8 +24,7 @@ app.post('/whatsapp/webhook', async (req, res) => {
 
   let secilenId = null;
 
-  // --- YENİ MANTIK BAŞLANGICI ---
-  // 1. Önce kullanıcı bir SİPARİŞ mi gönderdi diye bak (ADIM 5)
+  // 1. Önce kullanıcı bir SİPARİŞ mi gönderdi diye bak
   if (interactiveReply && interactiveReply.type === 'order') {
     const order = interactiveReply.order;
     console.log('Kullanıcı bir sipariş sepeti gönderdi!');
@@ -49,71 +48,130 @@ app.post('/whatsapp/webhook', async (req, res) => {
     } else {
         await client.messages.create({ from: process.env.TWILIO_WHATSAPP_NUMBER, to: kimden, body: 'Siparişiniz iptal edilmiştir. Yeni bir sipariş vermek isterseniz "merhaba" yazmanız yeterlidir.' });
     }
+  
+  // Yukarıdaki koşulların hiçbiri doğru değilse ve gelen normal bir mesajsa
+  } else {
+      console.log(`Kullanıcı sohbet başlattı: "${gelenMesaj}"`);
+      await sendCategoryList(kimden);
   }
-  // --- YENİ MANTIK SONU ---
 
-  // Eğer bir kategori seçildiyse, ürünleri listele
+  // Eğer bir kategori seçildiyse (manuel veya interaktif), ürünleri listele
   if (secilenId) {
-    // ... Bu kısım önceki adımla aynı, değişiklik yok ...
     if (secilenId === 'kategori_klima') {
         await sendProductList(kimden, 'Klima Kataloğu', [{ title: 'Klimalar', sku_prefix: 'klima' }]);
-    } // ... diğer kategori else if'leri
-  
-  // Hiçbiri değilse, sohbeti başlat
-  } else if (!interactiveReply) { // Sadece interaktif olmayan mesajlara kategori listesi gönder
-    console.log(`Kullanıcı sohbet başlattı: "${gelenMesaj}"`);
-    await sendCategoryList(kimden);
+    } else if (secilenId === 'kategori_jakuzi') {
+        await sendProductList(kimden, 'Jakuzi Kataloğu', [{ title: 'Jakuziler', sku_prefix: 'jakuzi' }]);
+    } else if (secilenId === 'kategori_earaba') {
+        await sendProductList(kimden, 'Elektrikli Araç Kataloğu', [{ title: 'Elektrikli Arabalar', sku_prefix: 'earaba' }]);
+    }
   }
   
   res.status(200).send();
 });
 
-// Siparişi işleyen ve onay butonlarını gönderen YENİ fonksiyon
-async function handleOrder(kime, order) {
-  let toplamFiyat = 0;
-  let siparisOzeti = "Siparişiniz harika görünüyor! Lütfen aşağıdaki özeti kontrol edip onaylayın:\n\n";
+// --- EKSİK OLAN FONKSİYONLAR BURADA ---
 
-  // Veritabanı veya katalogdan ürün isimlerini çekmek en doğrusu olurdu.
-  // Şimdilik SKU'ları ve fiyatları kullanarak bir özet oluşturalım.
-  order.product_items.forEach(item => {
-    const adet = parseInt(item.quantity);
-    const fiyat = parseFloat(item.item_price);
-    const satirToplam = adet * fiyat;
-    toplamFiyat += satirToplam;
-    
-    siparisOzeti += `Ürün Kodu: ${item.product_retailer_id}\n`;
-    siparisOzeti += `Adet: ${adet}\n`;
-    siparisOzeti += `Satır Toplamı: ${satirToplam.toFixed(2)} ${item.currency}\n\n`;
-  });
+// Kategori listesini gönderen fonksiyon
+async function sendCategoryList(kime) {
+  try {
+    await client.messages.create({
+      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      to: kime,
+      body: 'Lütfen ilgilendiğiniz ürün kategorisini seçin.',
+      interactive: {
+        type: 'list',
+        header: { type: 'text', text: 'Ürün Kategorileri' },
+        body: { text: 'SIBA LTD olarak size en kaliteli ürünleri sunuyoruz.' },
+        action: {
+          button: 'Kategorileri Görüntüle',
+          sections: [{
+            title: 'Ana Kategoriler',
+            rows: [
+              { id: 'kategori_klima', title: 'Klimalar' },
+              { id: 'kategori_jakuzi', title: 'Jakuziler' },
+              { id: 'kategori_earaba', title: 'Elektrikli Arabalar' }
+            ]
+          }]
+        }
+      }
+    });
+    console.log('Kategori seçim listesi başarıyla gönderildi.');
+  } catch (error) {
+    console.error('Kategori listesi gönderilirken hata:', error.response ? error.response.data : error.message);
+  }
+}
 
-  siparisOzeti += `*TOPLAM TUTAR: ${toplamFiyat.toFixed(2)} USD*`;
+// Ürün listesini gönderen fonksiyon
+async function sendProductList(kime, headerText, sections) {
+    // BU LİSTEYİ KENDİ ÜRÜN SKU'LARINIZLA DOLDURUN
+    const productSKUs = {
+        klima: ['klima_fairy_12000', 'klima_clivia_18000_siyah', 'klima_bora_24000'],
+        jakuzi: ['jakuzi_spa356', 'jakuzi_spa663', 'jakuzi_spa337', 'jakuzi_spa631', 'jakuzi_spa662'],
+        earaba: ['earaba_dongfeng_box_e2', 'earaba_dongfeng_epi007', 'earaba_ridarra_rd6']
+    };
+
+    const productSections = sections.map(section => ({
+        title: section.title,
+        product_items: productSKUs[section.sku_prefix].map(sku => ({ product_retailer_id: sku }))
+    }));
 
   try {
     await client.messages.create({
       from: process.env.TWILIO_WHATSAPP_NUMBER,
       to: kime,
-      body: 'Lütfen siparişinizi onaylayın.', // Yedek metin
+      body: 'İşte harika ürünlerimiz!',
+      interactive: {
+        type: 'product_list',
+        header: { type: 'text', text: headerText },
+        body: { text: 'Beğendiğiniz ürünleri sepetinize ekleyebilirsiniz.' },
+        action: {
+          catalog_id: process.env.META_CATALOG_ID,
+          sections: productSections
+        }
+      }
+    });
+    console.log('Ürün listesi başarıyla gönderildi.');
+  } catch (error) {
+    console.error('Ürün listesi gönderilirken hata:', error.response ? error.response.data : error.message);
+  }
+}
+
+// Siparişi işleyen ve onay butonlarını gönderen fonksiyon
+async function handleOrder(kime, order) {
+  let toplamFiyatUSD = 0;
+  let toplamFiyatGBP = 0;
+  let siparisOzeti = "Siparişiniz harika görünüyor! Lütfen aşağıdaki özeti kontrol edip onaylayın:\n\n";
+
+  order.product_items.forEach(item => {
+    const adet = parseInt(item.quantity);
+    const fiyat = parseFloat(item.item_price);
+    const satirToplam = adet * fiyat;
+    
+    if (item.currency === 'USD') {
+        toplamFiyatUSD += satirToplam;
+    } else if (item.currency === 'GBP') {
+        toplamFiyatGBP += satirToplam;
+    }
+    
+    siparisOzeti += `Ürün Kodu: ${item.product_retailer_id}\n`;
+    siparisOzeti += `Adet: ${adet}\n\n`;
+  });
+
+  if (toplamFiyatUSD > 0) siparisOzeti += `*ARA TOPLAM: ${toplamFiyatUSD.toFixed(2)} USD*\n`;
+  if (toplamFiyatGBP > 0) siparisOzeti += `*ARA TOPLAM: ${toplamFiyatGBP.toFixed(2)} GBP*\n`;
+
+  try {
+    await client.messages.create({
+      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      to: kime,
+      body: 'Lütfen siparişinizi onaylayın.',
       interactive: {
         type: 'button',
-        body: {
-          text: siparisOzeti
-        },
+        body: { text: siparisOzeti },
         action: {
           buttons: [
-            {
-              type: 'reply',
-              reply: {
-                id: 'onayla_evet',
-                title: '✅ Onayla'
-              }
-            },
-            {
-              type: 'reply',
-              reply: {
-                id: 'onayla_hayir',
-                title: '❌ İptal Et'
-              }
-            }
+            { type: 'reply', reply: { id: 'onayla_evet', title: '✅ Onayla' }},
+            { type: 'reply', reply: { id: 'onayla_hayir', title: '❌ İptal Et' }}
           ]
         }
       }
@@ -123,10 +181,6 @@ async function handleOrder(kime, order) {
     console.error('Onay mesajı gönderilirken hata:', error.response ? error.response.data : error.message);
   }
 }
-
-
-// ... sendCategoryList ve sendProductList fonksiyonları önceki adımla aynı, değişiklik yok ...
-// ... Sadece sendProductList'i tüm ürünlerinizi içerecek şekilde güncellemeyi unutmayın ...
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
